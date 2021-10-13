@@ -227,23 +227,29 @@ class InferMmlabKieFactory(dataprocess.CTaskFactory):
         dataprocess.CTaskFactory.__init__(self)
         # Set process information as string here
         self.info.name = "infer_mmlab_kie"
-        self.info.shortDescription = "your short description"
-        self.info.description = "your description"
+        self.info.shortDescription = "Inference for MMOCR from MMLAB kie models"
+        self.info.description = "If custom training is disabled, models will come from MMLAB's model zoo." \
+                                "Else, you can also choose to load a model you trained yourself with our plugin " \
+                                "train_mmlab_kie. In this case make sure you give to the plugin" \
+                                "a config file (.py) and a model file (.pth). Both of these files are produced " \
+                                "by the train plugin."
         # relative path -> as displayed in Ikomia application process tree
         self.info.path = "Plugins/Python"
         self.info.version = "1.0.0"
-        # self.info.iconPath = "your path to a specific icon"
-        self.info.authors = "algorithm author"
-        self.info.article = "title of associated research article"
-        self.info.journal = "publication journal"
+        self.info.iconPath = "icons/mmlab.png"
+        self.info.authors = "Kuang, Zhanghui and Sun, Hongbin and Li, Zhizhong and Yue, Xiaoyu and Lin," \
+                            " Tsui Hin and Chen, Jianyong and Wei, Huaqiang and Zhu, Yiqin and Gao, Tong and Zhang," \
+                            " Wenwei and Chen, Kai and Zhang, Wayne and Lin, Dahua"
+        self.info.article = "MMOCR:  A Comprehensive Toolbox for Text Detection, Recognition and Understanding"
+        self.info.journal = "Arxiv"
         self.info.year = 2021
-        self.info.license = "MIT License"
+        self.info.license = "Apache-2.0 License"
         # URL of documentation
-        self.info.documentationLink = ""
+        self.info.documentationLink = "https://mmocr.readthedocs.io/en/latest/"
         # Code source repository
-        self.info.repository = ""
+        self.info.repository = "https://github.com/open-mmlab/mmocr"
         # Keywords used for search
-        self.info.keywords = "your,keywords,here"
+        self.info.keywords = "infer, key, information, extraction, kie, mmlab, sdmgr"
 
     def create(self, param=None):
         # Create process object
