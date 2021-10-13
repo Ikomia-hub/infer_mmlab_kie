@@ -16,8 +16,11 @@ def polygon2bbox(pts):
     h = np.max(pts[1::2]) - y
     return [int(x), int(y), int(w), int(h)]
 
-def get_classes(dict_file):
 
-    with open(dict_file,"r") as f:
+def get_classes(dict_file):
+    classes = {}
+    with open(dict_file, "r") as f:
         for line in f.readlines():
-            print(line)
+            k, v = line.split(" ")
+            classes[int(k)] = v.replace("\n", "")
+    return classes

@@ -92,6 +92,7 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
         self.kie_dataset = None
+        self.classes = None
         # Create parameters class
         if param is None:
             self.setParam(InferMmlabKieParam())
@@ -108,10 +109,13 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         # Call beginTaskRun for initialization
         self.beginTaskRun()
         param = self.getParam()
-        input = self.getInput(0)
 
+        # Get inputs
+        input = self.getInput(0)
         graphics_input = self.getInput(1)
         input_items = graphics_input.getItems()
+
+        # Get outputs
         numeric_output = self.getOutput(2)
         numeric_output.clearData()
         numeric_output.setOutputType(dataprocess.NumericOutputType.TABLE)
@@ -129,7 +133,6 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                                     kie_models[param.model_name]["ckpt"])
 
                 dict_file = os.path.join(os.path.dirname(__file__), "wildreceipt/dict.txt")
-                self.classes = get_classes(dict_file)
                 self.kie_dataset = KIEDataset(dict_file=dict_file)
                 cfg.model.class_list = os.path.join(os.path.dirname(__file__), "wildreceipt/class_list.txt")
 
@@ -146,12 +149,12 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                 cfg = disable_text_recog_aug_test(cfg)
                 device = torch.device(self.device)
                 dict_file = param.dict
-                self.classes = get_classes(dict_file)
                 self.kie_dataset = KIEDataset(dict_file=dict_file)
                 cfg.model.class_list = param.class_file
                 self.model = init_detector(cfg, ckpt, device=device)
                 self.model = revert_sync_batchnorm(self.model)
 
+            self.classes = get_classes(cfg.model.class_list)
             param.update = False
             print("Model loaded!")
 
@@ -192,17 +195,18 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         numeric_output.addValueList(list(labels), "Class", texts)
 
         # output in a textfile for other applications
-        output_dir = os.path.join(os.path.dirname(__file__),"results")
-        output_file = os.path.join(output_dir,datetime.now().strftime("%d-%m-%YT%Hh%Mm%Ss"))
-        if not(os.path.isdir(output_dir)):
+        output_dir = os.path.join(os.path.dirname(__file__), "results")
+        output_file = os.path.join(output_dir, datetime.now().strftime("%d-%m-%YT%Hh%Mm%Ss"))
+        if not (os.path.isdir(output_dir)):
             os.mkdir(output_dir)
-        with open(output_file,'w') as f:
+        with open(output_file, 'w') as f:
             f.write("")
-        with open(output_file,'a') as f:
-            for label,conf,text,box in zip(labels,values,texts,boxes):
-                color = [255*(1-conf),255*conf,0]
-                self.draw_text(visual_img,text,box,color)
-                f.write(text+" "+str(int(label))+" "+str(conf)+"\n")
+        with open(output_file, 'a') as f:
+            for label, conf, text, box in zip(labels, values, texts, boxes):
+                if int(label) != len(self.classes) - 1:
+                    color = [255 * (1 - conf), 0, 255 * conf]
+                    self.draw_text(visual_img, self.classes[int(label)], box, color)
+                    f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
 
     def draw_text(self, img_display, text, box, color):
         x_b, y_b, w_b, h_b = box
@@ -211,7 +215,6 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         fontscale = w_b / w_t
         org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
         cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color, thickness=1)
-
 
 
 # --------------------
