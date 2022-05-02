@@ -22,7 +22,7 @@ import copy
 from mmcv import Config
 from mmocr.apis.inference import disable_text_recog_aug_test, init_detector, model_inference
 import torch
-from infer_mmlab_kie.utils import kie_models, polygon2bbox, get_classes
+from infer_mmlab_kie.utils import polygon2bbox, get_classes, stitch_boxes_into_lines
 import os
 from mmocr.datasets.pipelines.ocr_transforms import ResizeOCR
 from mmocr.datasets.kie_dataset import KIEDataset
@@ -31,6 +31,7 @@ from mmocr.utils.model import revert_sync_batchnorm
 import numpy as np
 from datetime import datetime
 import cv2
+import re
 
 
 # --------------------
@@ -43,12 +44,19 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         core.CWorkflowTaskParam.__init__(self)
         # Place default value initialization here
         self.update = False
-        self.model_name = "SDMGR"
-        self.cfg = ""
-        self.weights = ""
+        self.model_name = "sdmgr"
+        self.cfg = "sdmgr_novisual_60e_wildreceipt.py"
+        self.weights = "https://download.openmmlab.com/mmocr/kie/sdmgr/" \
+                       "sdmgr_novisual_60e_wildreceipt_20210405-07bc26ad.pth"
         self.custom_training = False
         self.dict = ""
         self.class_file = ""
+        self.merge_box = False
+        self.max_x_dist = 10
+        self.min_y_overlap_ratio = 0.8
+        self.custom_cfg = ""
+        self.custom_weights = ""
+
 
     def setParamMap(self, param_map):
         # Set parameters values from Ikomia application
@@ -60,6 +68,11 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         self.custom_training = distutils.util.strtobool(param_map["custom_training"])
         self.dict = param_map["dict"]
         self.class_file = param_map["class_file"]
+        self.merge_box = distutils.util.strtobool(param_map["merge_box"])
+        self.max_x_dist = int(param_map["max_x_dist"])
+        self.min_y_overlap_ratio = float(param_map["min_y_overlap_ratio"])
+        self.custom_cfg = param_map["custom_cfg"]
+        self.custom_weights = param_map["custom_weights"]
 
     def getParamMap(self):
         # Send parameters values to Ikomia application
@@ -73,6 +86,11 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         param_map["custom_training"] = str(self.custom_training)
         param_map["dict"] = self.dict
         param_map["class_file"] = self.class_file
+        param_map["merge_box"] = str(self.merge_box)
+        param_map["max_x_dist"] = str(self.max_x_dist)
+        param_map["min_y_overlap_ratio"] = str(self.min_y_overlap_ratio)
+        param_map["custom_cfg"] = self.custom_cfg
+        param_map["custom_weights"] = self.custom_weights
         return param_map
 
 
@@ -125,34 +143,24 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         # Load models into memory
         if self.model is None or param.update:
             print("Loading KIE model...")
-            if not (param.custom_training):
-                cfg = Config.fromfile(os.path.join(os.path.dirname(__file__), "configs/kie",
-                                                   kie_models[param.model_name]["config"]))
-                cfg = disable_text_recog_aug_test(cfg)
-                ckpt = os.path.join('https://download.openmmlab.com/mmocr/kie/',
-                                    kie_models[param.model_name]["ckpt"])
-
+            if not param.custom_training:
+                cfg = Config.fromfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie",
+                                                   param.model_name, param.cfg))
+                ckpt = param.weights
                 dict_file = os.path.join(os.path.dirname(__file__), "wildreceipt/dict.txt")
                 self.kie_dataset = KIEDataset(dict_file=dict_file)
                 cfg.model.class_list = os.path.join(os.path.dirname(__file__), "wildreceipt/class_list.txt")
-
-                cfg = disable_text_recog_aug_test(cfg)
-
                 device = torch.device(self.device)
-                self.model = init_detector(cfg, ckpt, device=device)
-                self.model = revert_sync_batchnorm(self.model)
 
             else:
-                config = param.cfg if param.cfg != "" and param.custom_training else None
-                ckpt = param.weights if param.weights != "" and param.custom_training else None
-                cfg = Config.fromfile(config)
-                cfg = disable_text_recog_aug_test(cfg)
+                cfg = Config.fromfile(param.custom_cfg)
+                ckpt = param.custom_weights
                 device = torch.device(self.device)
                 dict_file = param.dict
                 self.kie_dataset = KIEDataset(dict_file=dict_file)
                 cfg.model.class_list = param.class_file
-                self.model = init_detector(cfg, ckpt, device=device)
-                self.model = revert_sync_batchnorm(self.model)
+            self.model = init_detector(cfg, ckpt, device=device)
+            self.model = revert_sync_batchnorm(self.model)
 
             self.classes = get_classes(cfg.model.class_list)
             param.update = False
@@ -169,10 +177,20 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                     pts.append(p.x)
                     pts.append(p.y)
                 record['box'] = pts
-                # SDMGR does not support space in text
-                record['text'] = item.getCategory()  # .replace(' ','')
+                record['text'] = item.getCategory()
                 annotations.append(record)
+
+            # merging boxes if needed
+            if param.merge_box:
+                annotations = stitch_boxes_into_lines(annotations, max_x_dist=param.max_x_dist,
+                                                      min_y_overlap_ratio=param.min_y_overlap_ratio)
+
             ann_info = self.kie_dataset._parse_anno_info(annotations)
+            ann_info['ori_bboxes'] = ann_info.get('ori_bboxes',
+                                                  ann_info['bboxes'])
+            ann_info['gt_bboxes'] = ann_info.get('gt_bboxes',
+                                                 ann_info['bboxes'])
+
             out = model_inference(self.model,
                                   srcImg,
                                   ann=ann_info,
@@ -188,8 +206,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
     def visualize_kie(self, results, numeric_output, annotations, visual_img):
         labels = np.argmax(results['nodes'].cpu().numpy(), axis=1).astype(dtype=float)
         values = np.max(results['nodes'].cpu().numpy(), axis=1)
-        texts = [annot['text'] for annot in annotations]
-        boxes = [polygon2bbox(annot['box']) for annot in annotations]
+        texts = [anno['text'] for anno in annotations]
+        boxes = [anno['box'] for anno in annotations]
 
         # output for Ikomia Studio
         numeric_output.addValueList(list(labels), "Class", texts)
@@ -205,16 +223,18 @@ class InferMmlabKie(dataprocess.C2dImageTask):
             for label, conf, text, box in zip(labels, values, texts, boxes):
                 if int(label) != len(self.classes) - 1:
                     color = [255 * (1 - conf), 0, 255 * conf]
-                    self.draw_text(visual_img, self.classes[int(label)], box, color)
+
+                    draw_text(visual_img, re.sub('[^A-Za-z0-9_]+', '', self.classes[int(label)]), box, color)
                     f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
 
-    def draw_text(self, img_display, text, box, color):
-        x_b, y_b, w_b, h_b = box
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        (w_t, h_t), _ = cv2.getTextSize(text, fontFace=font, fontScale=1, thickness=1)
-        fontscale = w_b / w_t
-        org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
-        cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color, thickness=1)
+
+def draw_text(img_display, text, box, color):
+    x_b, y_b, w_b, h_b = polygon2bbox(box)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (w_t, h_t), _ = cv2.getTextSize(text, fontFace=font, fontScale=1, thickness=1)
+    fontscale = w_b / w_t
+    org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
+    cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color, thickness=1)
 
 
 # --------------------
