@@ -57,7 +57,6 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         self.custom_cfg = ""
         self.custom_weights = ""
 
-
     def setParamMap(self, param_map):
         # Set parameters values from Ikomia application
         # Parameters values are stored as string and accessible like a python dict
