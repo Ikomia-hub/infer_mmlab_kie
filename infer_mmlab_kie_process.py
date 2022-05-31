@@ -196,8 +196,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                                   ann=ann_info,
                                   batch_mode=False,
                                   return_data=False)
-            visual_img = np.zeros_like(srcImg)
-            visual_img.fill(255)
+            visual_img = np.copy(srcImg)
+            # visual_img.fill(255)
             self.visualize_kie(out, numeric_output, annotations, visual_img)
             visual_output.setImage(visual_img)
         # Call endTaskRun to finalize process
@@ -221,11 +221,10 @@ class InferMmlabKie(dataprocess.C2dImageTask):
             f.write("")
         with open(output_file, 'a') as f:
             for label, conf, text, box in zip(labels, values, texts, boxes):
-                if int(label) != len(self.classes) - 1:
-                    color = [255 * (1 - conf), 0, 255 * conf]
+                color = [255 * (1 - conf), 0, 255 * conf]
 
-                    draw_text(visual_img, re.sub('[^A-Za-z0-9_]+', '', self.classes[int(label)]), box, color)
-                    f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
+                draw_text(visual_img, re.sub('[^A-Za-z0-9_]+', '', self.classes[int(label)]), box, color)
+                f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
 
 
 def draw_text(img_display, text, box, color):
@@ -235,6 +234,7 @@ def draw_text(img_display, text, box, color):
     fontscale = w_b / w_t
     org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
     cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color, thickness=1)
+    cv2.rectangle(img_display, [x_b, y_b], [x_b + w_b, y_b + h_b], color=color, thickness=3)
 
 
 # --------------------
