@@ -102,6 +102,10 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.grid_layout.addWidget(self.label_class_file, row + 3, 0)
         self.grid_layout.addWidget(self.browse_class_file, row + 3, 1)
 
+        # Box merging
+        self.check_merge = pyqtutils.append_check(self.grid_layout, "Merge box", self.parameters.merge_box)
+        self.spin_dist = pyqtutils.append_spin(self.grid_layout, "Maximum distance (px) between boxes", self.parameters.max_x_dist)
+
         # PyQt -> Qt wrapping
         layout_ptr = qtconversion.PyQtToQt(self.grid_layout)
 
@@ -154,6 +158,8 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.parameters.weights = self.available_cfg_ckpt[self.combo_config.currentText()]["ckpt"]
         self.parameters.dict = self.browse_dict.path
         self.parameters.class_file = self.browse_class_file.path
+        self.parameters.merge_box = self.check_merge.isChecked()
+        self.parameters.max_x_dist = self.spin_dist.value()
 
         # update model
         self.parameters.update = True
