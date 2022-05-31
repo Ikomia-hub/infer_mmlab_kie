@@ -51,9 +51,9 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         self.custom_training = False
         self.dict = ""
         self.class_file = ""
-        self.merge_box = False
-        self.max_x_dist = 10
-        self.min_y_overlap_ratio = 0.8
+        self.merge_box = True
+        self.max_x_dist = 9999
+        self.min_y_overlap_ratio = 0.6
         self.custom_cfg = ""
         self.custom_weights = ""
 
