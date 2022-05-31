@@ -221,7 +221,6 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         with open(output_file, 'a') as f:
             for label, conf, text, box in zip(labels, values, texts, boxes):
                 color = [255 * (1 - conf), 0, 255 * conf]
-
                 draw_text(visual_img, re.sub('[^A-Za-z0-9_]+', '', self.classes[int(label)]), box, color)
                 f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
 
@@ -229,11 +228,12 @@ class InferMmlabKie(dataprocess.C2dImageTask):
 def draw_text(img_display, text, box, color):
     x_b, y_b, w_b, h_b = polygon2bbox(box)
     font = cv2.FONT_HERSHEY_SIMPLEX
-    (w_t, h_t), _ = cv2.getTextSize(text, fontFace=font, fontScale=1, thickness=1)
-    fontscale = w_b / w_t
+    thickness = max(1, int(h_b/10))
+    (w_t, h_t), _ = cv2.getTextSize(text, fontFace=font, fontScale=1, thickness=thickness)
+    fontscale = min(w_b / w_t, h_b / h_t)
     org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
-    cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color, thickness=1)
-    cv2.rectangle(img_display, [x_b, y_b], [x_b + w_b, y_b + h_b], color=color, thickness=3)
+    cv2.rectangle(img_display, [x_b, y_b], [x_b + w_b, y_b + h_b], color=color, thickness=thickness)
+    cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color[::-1], thickness=thickness)
 
 
 # --------------------
