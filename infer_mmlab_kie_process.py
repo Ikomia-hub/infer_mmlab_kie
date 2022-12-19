@@ -15,23 +15,19 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 from ikomia import core, dataprocess
 import copy
 # Your imports below
-from mmcv import Config
-from mmocr.apis.inference import disable_text_recog_aug_test, init_detector, model_inference
+from mmengine import Config
 import torch
 from infer_mmlab_kie.utils import polygon2bbox, get_classes, stitch_boxes_into_lines
 import os
-from mmocr.datasets.pipelines.ocr_transforms import ResizeOCR
-from mmocr.datasets.kie_dataset import KIEDataset
 import distutils
-from mmocr.utils.model import revert_sync_batchnorm
-import numpy as np
-from datetime import datetime
-import cv2
-import re
+import json
+from mmocr.apis.inferencers import KIEInferencer
+from tempfile import NamedTemporaryFile
+from mmocr.utils import register_all_modules
+import random
 
 
 # --------------------
@@ -52,7 +48,7 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         self.dict = ""
         self.class_file = ""
         self.merge_box = True
-        self.max_x_dist = 9999
+        self.max_x_dist = 1
         self.min_y_overlap_ratio = 0.6
         self.custom_cfg = ""
         self.custom_weights = ""
@@ -62,6 +58,7 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
         # Parameters values are stored as string and accessible like a python dict
         self.update = distutils.util.strtobool(param_map["update"])
         self.model_name = param_map["model_name"]
+
         self.cfg = param_map["cfg"]
         self.weights = param_map["weights"]
         self.custom_training = distutils.util.strtobool(param_map["custom_training"])
@@ -102,14 +99,16 @@ class InferMmlabKie(dataprocess.C2dImageTask):
     def __init__(self, name, param):
         dataprocess.C2dImageTask.__init__(self, name)
         # Add input/output of the process here
-        self.addOutput(dataprocess.CGraphicsOutput())
-        self.addOutput(dataprocess.CNumericIO())
-        self.addOutput(dataprocess.CImageIO())
+        self.addOutput(dataprocess.CObjectDetectionIO())
+        self.addOutput(dataprocess.DataDictIO())
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
         self.kie_dataset = None
         self.classes = None
+        self.colors = None
+
+        register_all_modules()
         # Create parameters class
         if param is None:
             self.setParam(InferMmlabKieParam())
@@ -133,35 +132,50 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         input_items = graphics_input.getItems()
 
         # Get outputs
-        numeric_output = self.getOutput(2)
-        numeric_output.clearData()
-        numeric_output.setOutputType(dataprocess.NumericOutputType.TABLE)
-        visual_output = self.getOutput(3)
-        visual_img = visual_output.getImage()
+        output = self.getOutput(1)
+        dict_output = self.getOutput(2)
 
         # Load models into memory
         if self.model is None or param.update:
             print("Loading KIE model...")
             if not param.custom_training:
-                cfg = Config.fromfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie",
-                                                   param.model_name, param.cfg))
+                cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie",
+                                   param.model_name, param.cfg)
+                cfg = Config.fromfile(filename=cfg)
+                class_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt",
+                                          "class_list.txt")
+                dict_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt",
+                                         "dict.txt")
+                cfg.model.dictionary.dict_file = dict_file
                 ckpt = param.weights
-                dict_file = os.path.join(os.path.dirname(__file__), "wildreceipt/dict.txt")
-                self.kie_dataset = KIEDataset(dict_file=dict_file)
-                cfg.model.class_list = os.path.join(os.path.dirname(__file__), "wildreceipt/class_list.txt")
-                device = torch.device(self.device)
-
+                self.classes = get_classes(class_file)
             else:
-                cfg = Config.fromfile(param.custom_cfg)
+                cfg = Config.fromfile(filename=param.custom_cfg)
                 ckpt = param.custom_weights
-                device = torch.device(self.device)
-                dict_file = param.dict
-                self.kie_dataset = KIEDataset(dict_file=dict_file)
-                cfg.model.class_list = param.class_file
-            self.model = init_detector(cfg, ckpt, device=device)
-            self.model = revert_sync_batchnorm(self.model)
+                if os.path.isfile(param.class_file):
+                    self.classes = get_classes(param.class_file)
+                else:
+                    print("Class file ({}) can't be opened, defaulting to Wildreceipt one's".format(param.class_file))
+                    class_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt",
+                                              "class_list.txt")
+                    self.classes = get_classes(class_file)
+                if os.path.isfile(param.dict):
+                    cfg.model.dictionary.dict_file = param.dict
+                else:
+                    print("Dict file ({}) can't be opened, defaulting to the one in the config file".format(param.dict))
 
-            self.classes = get_classes(cfg.model.class_list)
+            if 'visualizer' in cfg:
+                cfg.pop('visualizer')
+
+            # Config object cannot be used to instantiate models, so we write it into a temporary file
+            temp = NamedTemporaryFile(suffix='.py')
+            cfg.dump(temp.name)
+
+            self.model = KIEInferencer(temp.name, ckpt, self.device)
+
+            random.seed(0)
+            self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.classes]
+
             param.update = False
             print("Model loaded!")
 
@@ -169,72 +183,49 @@ class InferMmlabKie(dataprocess.C2dImageTask):
 
         if srcImg is not None and input_items is not None:
             annotations = []
+            summed_h = 0
             for item in input_items:
                 record = {}
                 pts = []
                 for p in item.points:
                     pts.append(p.x)
                     pts.append(p.y)
-                record['box'] = pts
+                x1, y1, x2, y2 = polygon2bbox(pts)
+                record['bbox'] = [x1, y1, x2, y2]
+                summed_h += y2 - y1
                 record['text'] = item.getCategory()
                 annotations.append(record)
 
             # merging boxes if needed
             if param.merge_box:
-                annotations = stitch_boxes_into_lines(annotations, max_x_dist=param.max_x_dist,
-                                                      min_y_overlap_ratio=param.min_y_overlap_ratio)
+                # mean height of detected boxes gives a rough approximation of the width of an escaping character
+                mean_h = int(summed_h / len(input_items))
+                annotations = stitch_boxes_into_lines(annotations, max_x_dist=mean_h/4,
+                                                      min_y_overlap_ratio=param.min_y_overlap_ratio, sep='')
+                annotations = stitch_boxes_into_lines(annotations, max_x_dist=mean_h,
+                                                      min_y_overlap_ratio=param.min_y_overlap_ratio, sep=' ')
 
-            ann_info = self.kie_dataset._parse_anno_info(annotations)
-            ann_info['ori_bboxes'] = ann_info.get('ori_bboxes',
-                                                  ann_info['bboxes'])
-            ann_info['gt_bboxes'] = ann_info.get('gt_bboxes',
-                                                 ann_info['bboxes'])
+            out = self.model({'img': srcImg, 'instances': annotations})
+            self.visualize_kie(out, output, dict_output, annotations)
 
-            out = model_inference(self.model,
-                                  srcImg,
-                                  ann=ann_info,
-                                  batch_mode=False,
-                                  return_data=False)
-            visual_img = np.copy(srcImg)
-            # visual_img.fill(255)
-            self.visualize_kie(out, numeric_output, annotations, visual_img)
-            visual_output.setImage(visual_img)
+        self.forwardInputImage(0, 0)
         # Call endTaskRun to finalize process
         self.endTaskRun()
 
-    def visualize_kie(self, results, numeric_output, annotations, visual_img):
-        labels = np.argmax(results['nodes'].cpu().numpy(), axis=1).astype(dtype=float)
-        values = np.max(results['nodes'].cpu().numpy(), axis=1)
+    def visualize_kie(self, results, output, dict_output, annotations):
+        labels = results['labels']
+        scores = results['scores']
         texts = [anno['text'] for anno in annotations]
-        boxes = [anno['box'] for anno in annotations]
-
-        # output for Ikomia Studio
-        numeric_output.addValueList(list(labels), "Class", texts)
-
-        # output in a textfile for other applications
-        output_dir = os.path.join(os.path.dirname(__file__), "results")
-        output_file = os.path.join(output_dir, datetime.now().strftime("%d-%m-%YT%Hh%Mm%Ss"))
-        if not (os.path.isdir(output_dir)):
-            os.mkdir(output_dir)
-        with open(output_file, 'w') as f:
-            f.write("")
-        with open(output_file, 'a') as f:
-            for label, conf, text, box in zip(labels, values, texts, boxes):
-                color = [255 * (1 - conf), 0, 255 * conf]
-                draw_text(visual_img, re.sub('[^A-Za-z0-9_]+', '', self.classes[int(label)]), box, color)
-                f.write(text + " " + str(int(label)) + " " + str(conf) + "\n")
-
-
-def draw_text(img_display, text, box, color):
-    x_b, y_b, w_b, h_b = polygon2bbox(box)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    thickness = max(1, int(h_b/10))
-    (w_t, h_t), _ = cv2.getTextSize(text, fontFace=font, fontScale=1, thickness=thickness)
-    fontscale = min(w_b / w_t, h_b / h_t)
-    org = (x_b, y_b + int((h_b + h_t * fontscale) / 2))
-    cv2.rectangle(img_display, [x_b, y_b], [x_b + w_b, y_b + h_b], color=color, thickness=thickness)
-    cv2.putText(img_display, text, org, font, fontScale=fontscale, color=color[::-1], thickness=thickness)
-
+        boxes = [anno['bbox'] for anno in annotations]
+        out_dict = []
+        for i, (label, score, text, box) in enumerate(zip(labels, scores, texts, boxes)):
+            cls = self.classes[label]
+            x, y, x2, y2 = box
+            x, y, w, h = float(x), float(y), float(x2 - x), float(y2 - y)
+            output.addObject(i, cls, score, x, y, w, h,
+                             self.colors[label])
+            out_dict.append({'text': text, 'cls': cls, 'score': score, 'bbox': [x, y, x, h]})
+        dict_output.fromJson(json.dumps(out_dict))
 
 # --------------------
 # - Factory class to build process object

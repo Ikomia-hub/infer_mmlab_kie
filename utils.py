@@ -36,7 +36,7 @@ def is_on_same_line(box_a, box_b, min_y_overlap_ratio=0.8):
     return False
 
 
-def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
+def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8, sep=' '):
     """Stitch fragmented boxes of words into lines.
     Note: part of its logic is inspired by @Johndirr
     (https://github.com/faustomorales/keras-ocr/issues/22)
@@ -46,6 +46,7 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
                     edges of neighboring boxes in the same line
         min_y_overlap_ratio (float): The minimum vertical overlapping ratio
                     allowed for any pairs of neighboring boxes in the same line
+        sep (str): Separator character added between two boxes
     Returns:
         merged_boxes(list[dict]): List of merged boxes and texts
     """
@@ -56,7 +57,7 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
     merged_boxes = []
 
     # sort groups based on the x_min coordinate of boxes
-    x_sorted_boxes = sorted(boxes, key=lambda x: np.min(x['box'][::2]))
+    x_sorted_boxes = sorted(boxes, key=lambda x: np.min(x['bbox'][::2]))
     # store indexes of boxes which are already parts of other lines
     skip_idxs = set()
 
@@ -71,8 +72,8 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
         for j in range(i + 1, len(x_sorted_boxes)):
             if j in skip_idxs:
                 continue
-            if is_on_same_line(x_sorted_boxes[rightmost_box_idx]['box'],
-                               x_sorted_boxes[j]['box'], min_y_overlap_ratio):
+            if is_on_same_line(x_sorted_boxes[rightmost_box_idx]['bbox'],
+                               x_sorted_boxes[j]['bbox'], min_y_overlap_ratio):
                 line.append(j)
                 skip_idxs.add(j)
                 rightmost_box_idx = j
@@ -85,7 +86,7 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
         for k in range(1, len(line)):
             curr_box = x_sorted_boxes[line[k]]
             prev_box = x_sorted_boxes[line[k - 1]]
-            dist = np.min(curr_box['box'][::2]) - np.max(prev_box['box'][::2])
+            dist = np.min(curr_box['bbox'][::2]) - np.max(prev_box['bbox'][::2])
             if dist > max_x_dist:
                 line_idx += 1
                 lines.append([])
@@ -93,18 +94,17 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
 
         # Get merged boxes
         for box_group in lines:
-            merged_box = {}
-            merged_box['text'] = ' '.join(
-                [x_sorted_boxes[idx]['text'] for idx in box_group])
+            merged_box = {'text': sep.join(
+                [x_sorted_boxes[idx]['text'] for idx in box_group])}
             x_min, y_min = float('inf'), float('inf')
             x_max, y_max = float('-inf'), float('-inf')
             for idx in box_group:
-                x_max = max(np.max(x_sorted_boxes[idx]['box'][::2]), x_max)
-                x_min = min(np.min(x_sorted_boxes[idx]['box'][::2]), x_min)
-                y_max = max(np.max(x_sorted_boxes[idx]['box'][1::2]), y_max)
-                y_min = min(np.min(x_sorted_boxes[idx]['box'][1::2]), y_min)
-            merged_box['box'] = [
-                x_min, y_min, x_max, y_min, x_max, y_max, x_min, y_max
+                x_max = max(np.max(x_sorted_boxes[idx]['bbox'][::2]), x_max)
+                x_min = min(np.min(x_sorted_boxes[idx]['bbox'][::2]), x_min)
+                y_max = max(np.max(x_sorted_boxes[idx]['bbox'][1::2]), y_max)
+                y_min = min(np.min(x_sorted_boxes[idx]['bbox'][1::2]), y_min)
+            merged_box['bbox'] = [
+                x_min, y_min, x_max, y_max
             ]
             merged_boxes.append(merged_box)
 
@@ -112,11 +112,9 @@ def stitch_boxes_into_lines(boxes, max_x_dist=10, min_y_overlap_ratio=0.8):
 
 
 def polygon2bbox(pts):
-    x = np.min(pts[::2])
-    y = np.min(pts[1::2])
-    w = np.max(pts[::2]) - x
-    h = np.max(pts[1::2]) - y
-    return [int(x), int(y), int(w), int(h)]
+    x = pts[::2]
+    y = pts[1::2]
+    return [int(min(x)), int(min(y)), int(max(x)), int(max(y))]
 
 
 def get_classes(dict_file):
@@ -124,5 +122,5 @@ def get_classes(dict_file):
     with open(dict_file, "r") as f:
         for line in f.readlines():
             k, v = line.split(" ")
-            classes[int(k)] = v.replace("\n", "")
+            classes[int(k)] = v.rstrip()
     return classes

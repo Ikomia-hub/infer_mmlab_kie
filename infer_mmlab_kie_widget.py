@@ -35,6 +35,7 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
     def __init__(self, param, parent):
         core.CWorkflowTaskWidget.__init__(self, parent)
 
+        self.available_cfg_ckpt = None
         if param is None:
             self.parameters = InferMmlabKieParam()
         else:
@@ -53,9 +54,9 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.combo_config = pyqtutils.append_combo(self.grid_layout, "Config name")
         self.configs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie")
         self.combo_model.currentTextChanged.connect(self.on_combo_model_changed)
-        for dir in os.listdir(self.configs_path):
-            if os.path.isdir(os.path.join(self.configs_path, dir)) and dir != "_base_":
-                self.combo_model.addItem(dir)
+        for directory in os.listdir(self.configs_path):
+            if os.path.isdir(os.path.join(self.configs_path, directory)) and directory != "_base_":
+                self.combo_model.addItem(directory)
         self.combo_model.setCurrentText(self.parameters.model_name)
 
         # Model weights
@@ -104,7 +105,6 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
 
         # Box merging
         self.check_merge = pyqtutils.append_check(self.grid_layout, "Merge box", self.parameters.merge_box)
-        self.spin_dist = pyqtutils.append_spin(self.grid_layout, "Maximum distance (px) between boxes", self.parameters.max_x_dist)
 
         # PyQt -> Qt wrapping
         layout_ptr = qtconversion.PyQtToQt(self.grid_layout)
@@ -159,7 +159,6 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.parameters.dict = self.browse_dict.path
         self.parameters.class_file = self.browse_class_file.path
         self.parameters.merge_box = self.check_merge.isChecked()
-        self.parameters.max_x_dist = self.spin_dist.value()
 
         # update model
         self.parameters.update = True
