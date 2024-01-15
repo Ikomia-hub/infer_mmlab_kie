@@ -4,7 +4,7 @@ Collections:
     Training Data: KIEDataset
     Training Techniques:
       - Adam
-    Training Resources: 1x GeForce GTX 1080 Ti
+    Training Resources: 1x NVIDIA A100-SXM4-80GB
     Architecture:
       - UNet
       - SDMGRHead
@@ -15,6 +15,7 @@ Collections:
 
 Models:
   - Name: sdmgr_unet16_60e_wildreceipt
+    Alias: SDMGR
     In Collection: SDMGR
     Config: configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py
     Metadata:
@@ -23,9 +24,8 @@ Models:
       - Task: Key Information Extraction
         Dataset: wildreceipt
         Metrics:
-          macro_f1: 0.876
-    Weights: https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt_20210405-16a47642.pth
-
+          macro_f1: 0.890
+    Weights: https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth
   - Name: sdmgr_novisual_60e_wildreceipt
     In Collection: SDMGR
     Config: configs/kie/sdmgr/sdmgr_novisual_60e_wildreceipt.py
@@ -35,5 +35,18 @@ Models:
       - Task: Key Information Extraction
         Dataset: wildreceipt
         Metrics:
-          macro_f1: 0.864
-    Weights: https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_novisual_60e_wildreceipt_20210405-07bc26ad.pth
+          macro_f1: 0.873
+    Weights: https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_novisual_60e_wildreceipt/sdmgr_novisual_60e_wildreceipt_20220831_193317-827649d8.pth
+  - Name: sdmgr_novisual_60e_wildreceipt_openset
+    In Collection: SDMGR
+    Config: configs/kie/sdmgr/sdmgr_novisual_60e_wildreceipt-openset.py
+    Metadata:
+      Training Data: wildreceipt-openset
+    Results:
+      - Task: Key Information Extraction
+        Dataset: wildreceipt
+        Metrics:
+          macro_f1: 0.931
+          micro_f1: 0.940
+          edge_micro_f1: 0.792
+    Weights: https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_novisual_60e_wildreceipt-openset/sdmgr_novisual_60e_wildreceipt-openset_20220831_200807-dedf15ec.pth

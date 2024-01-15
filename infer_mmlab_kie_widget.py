@@ -35,6 +35,7 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
     def __init__(self, param, parent):
         core.CWorkflowTaskWidget.__init__(self, parent)
 
+        self.available_cfg_ckpt = None
         if param is None:
             self.parameters = InferMmlabKieParam()
         else:
@@ -44,8 +45,7 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.grid_layout = QGridLayout()
 
         # Pretrained or custom training
-        self.check_custom_training = pyqtutils.append_check(self.grid_layout, "Custom training",
-                                                            self.parameters.custom_training)
+        self.check_custom_training = pyqtutils.append_check(self.grid_layout, "Custom training", self.parameters.model_weight_file != "")
         self.check_custom_training.stateChanged.connect(self.on_check_custom_training_changed)
 
         # Models
@@ -53,19 +53,19 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         self.combo_config = pyqtutils.append_combo(self.grid_layout, "Config name")
         self.configs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie")
         self.combo_model.currentTextChanged.connect(self.on_combo_model_changed)
-        for dir in os.listdir(self.configs_path):
-            if os.path.isdir(os.path.join(self.configs_path, dir)) and dir != "_base_":
-                self.combo_model.addItem(dir)
+        for directory in os.listdir(self.configs_path):
+            if os.path.isdir(os.path.join(self.configs_path, directory)) and directory != "_base_":
+                self.combo_model.addItem(directory)
         self.combo_model.setCurrentText(self.parameters.model_name)
 
         # Model weights
         self.label_model_path = QLabel("Model path (.pth)")
-        self.browse_model = pyqtutils.BrowseFileWidget(path=self.parameters.custom_weights, tooltip="Select file",
+        self.browse_model = pyqtutils.BrowseFileWidget(path=self.parameters.model_weight_file, tooltip="Select file",
                                                        mode=QFileDialog.ExistingFile)
 
         # Model cfg
         self.label_cfg = QLabel("Config file (.py)")
-        self.browse_cfg = pyqtutils.BrowseFileWidget(path=self.parameters.custom_cfg, tooltip="Select file",
+        self.browse_cfg = pyqtutils.BrowseFileWidget(path=self.parameters.config_file, tooltip="Select file",
                                                      mode=QFileDialog.ExistingFile)
 
         # Dict
@@ -104,26 +104,14 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
 
         # Box merging
         self.check_merge = pyqtutils.append_check(self.grid_layout, "Merge box", self.parameters.merge_box)
-        self.spin_dist = pyqtutils.append_spin(self.grid_layout, "Maximum distance (px) between boxes", self.parameters.max_x_dist)
 
         # PyQt -> Qt wrapping
         layout_ptr = qtconversion.PyQtToQt(self.grid_layout)
 
         # Set widget layout
-        self.setLayout(layout_ptr)
+        self.set_layout(layout_ptr)
 
-    def on_check_custom_training_changed(self, int):
-        self.combo_model.setEnabled(not self.check_custom_training.isChecked())
-        self.label_cfg.setEnabled(self.check_custom_training.isChecked())
-        self.label_model_path.setEnabled(self.check_custom_training.isChecked())
-        self.label_dict.setEnabled(self.check_custom_training.isChecked())
-        self.label_class_file.setEnabled(self.check_custom_training.isChecked())
-        self.browse_cfg.setEnabled(self.check_custom_training.isChecked())
-        self.browse_model.setEnabled(self.check_custom_training.isChecked())
-        self.browse_class_file.setEnabled(self.check_custom_training.isChecked())
-        self.browse_dict.setEnabled(self.check_custom_training.isChecked())
-
-    def on_combo_model_changed(self, int):
+    def on_combo_model_changed(self, model_name):
         if self.combo_model.currentText() != "":
             self.combo_config.clear()
             current_model = self.combo_model.currentText()
@@ -133,39 +121,44 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
                 with open(yaml_file, "r") as f:
                     models_list = yaml.load(f, Loader=yaml.FullLoader)['Models']
 
-                self.available_cfg_ckpt = {model_dict["Name"]: {'cfg': model_dict["Config"],
-                                                                'ckpt': model_dict["Weights"]}
-                                           for
-                                           model_dict in models_list}
-                for experiment_name in self.available_cfg_ckpt.keys():
+                available_cfg = [os.path.splitext(os.path.basename(model_dict["Config"]))[0] for model_dict in models_list]
+                for experiment_name in available_cfg:
                     self.combo_config.addItem(experiment_name)
                     config_names.append(experiment_name)
 
-                if self.parameters.cfg in config_names:
-                    self.combo_config.setCurrentText(self.parameters.cfg)
+                selected_cfg = os.path.splitext(self.parameters.cfg)[0]
+                if selected_cfg in config_names:
+                    self.combo_config.setCurrentText(selected_cfg)
                 else:
-                    self.combo_config.setCurrentText(list(self.available_cfg_ckpt.keys())[0])
+                    self.combo_config.setCurrentText(available_cfg[0])
 
-    def onApply(self):
+    def on_check_custom_training_changed(self, int):
+        self.combo_model.setEnabled(not self.check_custom_training.isChecked())
+        self.combo_config.setEnabled(not self.check_custom_training.isChecked())
+
+        self.label_cfg.setEnabled(self.check_custom_training.isChecked())
+        self.label_model_path.setEnabled(self.check_custom_training.isChecked())
+        self.browse_cfg.setEnabled(self.check_custom_training.isChecked())
+        self.browse_model.setEnabled(self.check_custom_training.isChecked())
+
+
+    def on_apply(self):
         # Apply button clicked slot
 
         # Get parameters from widget
         self.parameters.model_name = self.combo_model.currentText()
-        self.parameters.custom_cfg = self.browse_cfg.path
-        self.parameters.custom_weights = self.browse_model.path
-        self.parameters.custom_training = self.check_custom_training.isChecked()
-        _, self.parameters.cfg = os.path.split(self.available_cfg_ckpt[self.combo_config.currentText()]["cfg"])
-        self.parameters.weights = self.available_cfg_ckpt[self.combo_config.currentText()]["ckpt"]
+        self.parameters.config_file = self.browse_cfg.path
+        self.parameters.model_weight_file = self.browse_model.path
+        self.parameters.cfg = self.combo_config.currentText() + ".py"
         self.parameters.dict = self.browse_dict.path
         self.parameters.class_file = self.browse_class_file.path
         self.parameters.merge_box = self.check_merge.isChecked()
-        self.parameters.max_x_dist = self.spin_dist.value()
 
         # update model
         self.parameters.update = True
 
         # Send signal to launch the process
-        self.emitApply(self.parameters)
+        self.emit_apply(self.parameters)
 
 
 # --------------------
