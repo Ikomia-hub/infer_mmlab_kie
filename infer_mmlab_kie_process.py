@@ -208,6 +208,7 @@ class InferMmlabKie(dataprocess.C2dImageTask):
 
     def init_long_process(self):
         self._load_model()
+        super().init_long_process()
 
     def run(self):
         # Core function of your process
