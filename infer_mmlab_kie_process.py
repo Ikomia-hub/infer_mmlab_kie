@@ -15,20 +15,22 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from ikomia import core, dataprocess
 import copy
-# Your imports below
-from mmengine import Config
-import torch
-from infer_mmlab_kie.utils import polygon2bbox, get_classes, stitch_boxes_into_lines
 import os
-from ikomia.utils import strtobool
-import json
-from mmocr.apis.inferencers import KIEInferencer
 from tempfile import NamedTemporaryFile
-from mmocr.utils import register_all_modules
 import random
 import yaml
+
+import torch
+
+from ikomia import core, dataprocess
+from ikomia.utils import strtobool
+
+from mmengine import Config
+from mmocr.apis.inferencers import KIEInferencer
+from mmocr.utils import register_all_modules
+
+from infer_mmlab_kie.utils import polygon2bbox, get_classes, stitch_boxes_into_lines
 
 
 # --------------------
@@ -68,18 +70,18 @@ class InferMmlabKieParam(core.CWorkflowTaskParam):
     def get_values(self):
         # Send parameters values to Ikomia application
         # Create the specific dict structure (string container)
-        param_map = {}
-        # Example : paramMap["windowSize"] = str(self.windowSize)
-        param_map["update"] = str(self.update)
-        param_map["model_name"] = self.model_name
-        param_map["cfg"] = self.cfg
-        param_map["config_file"] = self.config_file
-        param_map["model_weight_file"] = self.model_weight_file
-        param_map["dict"] = self.dict
-        param_map["class_file"] = self.class_file
-        param_map["merge_box"] = str(self.merge_box)
-        param_map["max_x_dist"] = str(self.max_x_dist)
-        param_map["min_y_overlap_ratio"] = str(self.min_y_overlap_ratio)
+        param_map = {
+            "update": str(self.update),
+            "model_name": self.model_name,
+            "cfg": self.cfg,
+            "config_file": self.config_file,
+            "model_weight_file": self.model_weight_file,
+            "dict": self.dict,
+            "class_file": self.class_file,
+            "merge_box": str(self.merge_box),
+            "max_x_dist": str(self.max_x_dist),
+            "min_y_overlap_ratio": str(self.min_y_overlap_ratio)
+        }
         return param_map
 
 
@@ -92,9 +94,9 @@ class InferMmlabKie(dataprocess.C2dImageTask):
     def __init__(self, name, param):
         dataprocess.C2dImageTask.__init__(self, name)
         # Add input/output of the process here
-        self.add_output(dataprocess.CTextIO())
         self.remove_input(1)
         self.add_input(dataprocess.CTextIO())
+        self.add_output(dataprocess.CTextIO())
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
@@ -103,6 +105,7 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         self.colors = None
 
         register_all_modules()
+
         # Create parameters class.custom
         if param is None:
             self.set_param_object(InferMmlabKieParam())
@@ -166,6 +169,47 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                 raise Exception("If model_weight_file is set you must also set config_file (absolute path of the config file that goes with model weight)")
             return param.config_file, param.model_weight_file
 
+    def _load_model(self):
+        param = self.get_param_object()
+        # Set cache dir in the algorithm folder to simplify deployment
+        old_torch_hub = torch.hub.get_dir()
+        torch.hub.set_dir(os.path.join(os.path.dirname(__file__), "models"))
+
+        print("Loading KIE model...")
+        cfg, ckpt = self.get_absolute_paths(param)
+        cfg = Config.fromfile(filename=cfg)
+
+        if os.path.isfile(param.class_file):
+            self.classes = get_classes(param.class_file)
+        else:
+            print("Class file ({}) can't be opened, defaulting to Wildreceipt one's".format(param.class_file))
+            class_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt", "class_list.txt")
+            self.classes = get_classes(class_file)
+
+        if os.path.isfile(param.dict):
+            cfg.model.dictionary.dict_file = param.dict
+        else:
+            print("Dict file ({}) can't be opened, defaulting to the one in the config file".format(param.dict))
+
+        # Config object cannot be used to instantiate models, so we write it into a temporary file
+        temp = NamedTemporaryFile(suffix='.py', delete=False)
+        cfg.dump(temp.name)
+        cfg = temp.name
+
+        self.model = KIEInferencer(cfg, ckpt, self.device)
+
+        random.seed(0)
+        self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.classes]
+
+        param.update = False
+        # Reset torch cache dir for next algorithms in the workflow
+        torch.hub.set_dir(old_torch_hub)
+        print("Model loaded!")
+
+    def init_long_process(self):
+        self._load_model()
+        super().init_long_process()
+
     def run(self):
         # Core function of your process
         # Call begin_task_run for initializationyour config file
@@ -173,7 +217,7 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         param = self.get_param_object()
 
         # Get inputs
-        input = self.get_input(0)
+        img_input = self.get_input(0)
         text_input = self.get_input(1)
         input_items = text_input.get_text_fields()
 
@@ -181,53 +225,22 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         output = self.get_output(1)
 
         # Load models into memory
-        if self.model is None or param.update:
-            # Set cache dir in the algorithm folder to simplify deployment
-            old_torch_hub = torch.hub.get_dir()
-            torch.hub.set_dir(os.path.join(os.path.dirname(__file__), "models"))
+        if param.update:
+            self._load_model()
 
-            print("Loading KIE model...")
-            cfg, ckpt = self.get_absolute_paths(param)
-            cfg = Config.fromfile(filename=cfg)
-            if os.path.isfile(param.class_file):
-                self.classes = get_classes(param.class_file)
-            else:
-                print("Class file ({}) can't be opened, defaulting to Wildreceipt one's".format(param.class_file))
-                class_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt",
-                                          "class_list.txt")
-                self.classes = get_classes(class_file)
-
-            if os.path.isfile(param.dict):
-                cfg.model.dictionary.dict_file = param.dict
-            else:
-                print("Dict file ({}) can't be opened, defaulting to the one in the config file".format(param.dict))
-
-            # Config object cannot be used to instantiate models, so we write it into a temporary file
-            temp = NamedTemporaryFile(suffix='.py', delete=False)
-            cfg.dump(temp.name)
-            cfg = temp.name
-
-            self.model = KIEInferencer(cfg, ckpt, self.device)
-
-            random.seed(0)
-            self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.classes]
-
-            param.update = False
-            # Reset torch cache dir for next algorithms in the workflow
-            torch.hub.set_dir(old_torch_hub)
-            print("Model loaded!")
-
-        srcImg = input.get_image()
-
-        if srcImg is not None and input_items is not None:
+        src_img = img_input.get_image()
+        if src_img is not None and input_items is not None:
             annotations = []
             summed_h = 0
+
             for item in input_items:
                 record = {}
                 pts = []
+
                 for p in item.polygon:
                     pts.append(p.x)
                     pts.append(p.y)
+
                 x1, y1, x2, y2 = polygon2bbox(pts)
                 record['bbox'] = [x1, y1, x2, y2]
                 summed_h += y2 - y1
@@ -246,7 +259,7 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                 else:
                     annotations = stitch_boxes_into_lines(annotations, max_x_dist=param.max_x_dist,
                                                           min_y_overlap_ratio=param.min_y_overlap_ratio, sep=' ')
-            out = self.model({'img': srcImg, 'instances': annotations})
+            out = self.model({'img': src_img, 'instances': annotations})
             self.visualize_kie(out, output, annotations)
 
         self.forward_input_image(0, 0)
@@ -258,12 +271,12 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         scores = results['predictions'][0]['scores']
         texts = [anno['text'] for anno in annotations]
         boxes = [anno['bbox'] for anno in annotations]
+
         for i, (label, score, text, box) in enumerate(zip(labels, scores, texts, boxes)):
             cls = self.classes[label]
             x, y, x2, y2 = box
             x, y, w, h = float(x), float(y), float(x2 - x), float(y2 - y)
-            output.add_text_field(i, cls, text, score, x, y, w, h,
-                             self.colors[label])
+            output.add_text_field(i, cls, text, score, x, y, w, h, self.colors[label])
 
 # --------------------
 # - Factory class to build process object
@@ -278,8 +291,10 @@ class InferMmlabKieFactory(dataprocess.CTaskFactory):
         self.info.short_description = "Inference for MMOCR from MMLAB KIE models"
         # relative path -> as displayed in Ikomia application process tree
         self.info.path = "Plugins/Python/Text"
-        self.info.version = "2.0.1"
-        self.info.max_python_version = "3.10"
+        self.info.version = "2.1.0"
+        self.info.max_python_version = "3.9"
+        self.info.max_python_version = "3.11"
+        self.info.min_ikomia_version = "0.15.0"
         self.info.icon_path = "icons/mmlab.png"
         self.info.authors = "Kuang, Zhanghui and Sun, Hongbin and Li, Zhizhong and Yue, Xiaoyu and Lin," \
                             " Tsui Hin and Chen, Jianyong and Wei, Huaqiang and Zhu, Yiqin and Gao, Tong and Zhang," \
@@ -298,6 +313,10 @@ class InferMmlabKieFactory(dataprocess.CTaskFactory):
         self.info.keywords = "infer, key, information, extraction, kie, mmlab, sdmgr"
         self.info.algo_type = core.AlgoType.INFER
         self.info.algo_tasks = "OCR"
+        self.info.hardware_config.min_cpu = 4
+        self.info.hardware_config.min_ram = 8
+        self.info.hardware_config.gpu_required = False
+        self.info.hardware_config.min_vram = 6
 
     def create(self, param=None):
         # Create process object
