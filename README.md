@@ -53,7 +53,7 @@ rec = wf.add_task(name="infer_mmlab_text_recognition", auto_connect=True)
 kie = wf.add_task(name="infer_mmlab_kie", auto_connect=True)
 
 # Run on your image
-wf.run_on(url="https://github.com/open-mmlab/mmocr/blob/main/demo/demo_kie.jpeg?raw=true")
+wf.run_on(url="https://raw.githubusercontent.com/open-mmlab/mmocr/refs/heads/main/demo/demo_kie.jpeg")
 
 # Get results
 original_image_output = kie.get_output(0)
@@ -94,7 +94,7 @@ kie.set_parameters({
     'cfg': 'sdmgr_unet16_60e_wildreceipt'})
 
 # Run on your image
-wf.run_on(url="https://github.com/open-mmlab/mmocr/blob/main/demo/demo_kie.jpeg?raw=true")
+wf.run_on(url="https://raw.githubusercontent.com/open-mmlab/mmocr/refs/heads/main/demo/demo_kie.jpeg")
 
 # Get results
 original_image_output = kie.get_output(0)
@@ -144,7 +144,7 @@ rec = wf.add_task(name="infer_mmlab_text_recognition", auto_connect=True)
 kie = wf.add_task(name="infer_mmlab_kie", auto_connect=True)
 
 # Run on your image
-wf.run_on(url="https://github.com/open-mmlab/mmocr/blob/main/demo/demo_kie.jpeg?raw=true")
+wf.run_on(url="https://raw.githubusercontent.com/open-mmlab/mmocr/refs/heads/main/demo/demo_kie.jpeg")
 
 # Iterate over outputs
 for output in kie.get_outputs():
