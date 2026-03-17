@@ -1,29 +1,13 @@
-# Copyright (C) 2021 Ikomia SAS
-# Contact: https://www.ikomia.com
-#
-# This file is part of the IkomiaStudio software.
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
+import yaml
+
+# PyQt GUI framework
+from PyQt6.QtWidgets import *
 
 from ikomia import core, dataprocess
 from ikomia.utils import pyqtutils, qtconversion
-from infer_mmlab_kie.infer_mmlab_kie_process import InferMmlabKieParam
 
-# PyQt GUI framework
-from PyQt5.QtWidgets import *
-import os
-import yaml
+from infer_mmlab_kie.infer_mmlab_kie_process import InferMmlabKieParam
 
 
 # --------------------
@@ -61,22 +45,22 @@ class InferMmlabKieWidget(core.CWorkflowTaskWidget):
         # Model weights
         self.label_model_path = QLabel("Model path (.pth)")
         self.browse_model = pyqtutils.BrowseFileWidget(path=self.parameters.model_weight_file, tooltip="Select file",
-                                                       mode=QFileDialog.ExistingFile)
+                                                       mode=QFileDialog.FileMode.ExistingFile)
 
         # Model cfg
         self.label_cfg = QLabel("Config file (.py)")
         self.browse_cfg = pyqtutils.BrowseFileWidget(path=self.parameters.config_file, tooltip="Select file",
-                                                     mode=QFileDialog.ExistingFile)
+                                                     mode=QFileDialog.FileMode.ExistingFile)
 
         # Dict
         self.label_dict = QLabel("Dict file (.txt)")
         self.browse_dict = pyqtutils.BrowseFileWidget(path=self.parameters.dict, tooltip="Select file",
-                                                      mode=QFileDialog.ExistingFile)
+                                                      mode=QFileDialog.FileMode.ExistingFile)
 
         # Class file
         self.label_class_file = QLabel("Class file (.txt)")
         self.browse_class_file = pyqtutils.BrowseFileWidget(path=self.parameters.class_file, tooltip="Select file",
-                                                            mode=QFileDialog.ExistingFile)
+                                                            mode=QFileDialog.FileMode.ExistingFile)
 
         # Hide or show widgets depending on user's choice
         self.combo_model.setEnabled(not self.check_custom_training.isChecked())
