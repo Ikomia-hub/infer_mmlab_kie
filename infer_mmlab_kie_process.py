@@ -102,12 +102,14 @@ class InferMmlabKie(dataprocess.C2dImageTask):
 
     @staticmethod
     def get_model_zoo():
-        configs_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "kie")
+        configs_folder = os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), "configs", "kie")
         available_pairs = []
         for model_name in os.listdir(configs_folder):
             if model_name.startswith('_'):
                 continue
-            yaml_file = os.path.join(configs_folder, model_name, "metafile.yml")
+            yaml_file = os.path.join(
+                configs_folder, model_name, "metafile.yml")
             if os.path.isfile(yaml_file):
                 with open(yaml_file, "r") as f:
                     models_list = yaml.load(f, Loader=yaml.FullLoader)
@@ -116,7 +118,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                     if not isinstance(models_list, list):
                         continue
                 for model_dict in models_list:
-                    available_pairs.append({"model_name": model_name, "cfg": os.path.basename(model_dict["Name"])})
+                    available_pairs.append(
+                        {"model_name": model_name, "cfg": os.path.basename(model_dict["Name"])})
         return available_pairs
 
     @staticmethod
@@ -131,7 +134,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                 model_config = model_config[:-3]
             if os.path.isfile(yaml_file):
                 with open(yaml_file, "r") as f:
-                    models_list = yaml.load(f, Loader=yaml.FullLoader)['Models']
+                    models_list = yaml.load(
+                        f, Loader=yaml.FullLoader)['Models']
 
                 available_cfg_ckpt = {model_dict["Name"]: {'cfg': model_dict["Config"],
                                                            'ckpt': model_dict["Weights"]}
@@ -139,7 +143,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
                 if model_config in available_cfg_ckpt:
                     cfg_file = available_cfg_ckpt[model_config]['cfg']
                     ckpt_file = available_cfg_ckpt[model_config]['ckpt']
-                    cfg_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), cfg_file)
+                    cfg_file = os.path.join(os.path.dirname(
+                        os.path.abspath(__file__)), cfg_file)
                 else:
                     raise Exception(
                         f"{model_config} does not exist for {model_name}. Available configs for are {', '.join(list(available_cfg_ckpt.keys()))}")
@@ -149,7 +154,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
             return cfg_file, ckpt_file
         else:
             if param.config_file == "":
-                raise Exception("If model_weight_file is set you must also set config_file (absolute path of the config file that goes with model weight)")
+                raise Exception(
+                    "If model_weight_file is set you must also set config_file (absolute path of the config file that goes with model weight)")
             return param.config_file, param.model_weight_file
 
     def _load_model(self):
@@ -165,14 +171,17 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         if os.path.isfile(param.class_file):
             self.classes = get_classes(param.class_file)
         else:
-            print("Class file ({}) can't be opened, defaulting to Wildreceipt one's".format(param.class_file))
-            class_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wildreceipt", "class_list.txt")
+            print("Class file ({}) can't be opened, defaulting to Wildreceipt one's".format(
+                param.class_file))
+            class_file = os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), "wildreceipt", "class_list.txt")
             self.classes = get_classes(class_file)
 
         if os.path.isfile(param.dict):
             cfg.model.dictionary.dict_file = param.dict
         else:
-            print("Dict file ({}) can't be opened, defaulting to the one in the config file".format(param.dict))
+            print("Dict file ({}) can't be opened, defaulting to the one in the config file".format(
+                param.dict))
 
         # Config object cannot be used to instantiate models, so we write it into a temporary file
         temp = NamedTemporaryFile(suffix='.py', delete=False)
@@ -182,7 +191,8 @@ class InferMmlabKie(dataprocess.C2dImageTask):
         self.model = KIEInferencer(cfg, ckpt, self.device)
 
         random.seed(0)
-        self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.classes]
+        self.colors = [[random.randint(0, 255)
+                        for _ in range(3)] for _ in self.classes]
 
         param.update = False
         # Reset torch cache dir for next algorithms in the workflow
@@ -259,12 +269,15 @@ class InferMmlabKie(dataprocess.C2dImageTask):
             cls = self.classes[label]
             x, y, x2, y2 = box
             x, y, w, h = float(x), float(y), float(x2 - x), float(y2 - y)
-            output.add_text_field(i, cls, text, score, x, y, w, h, self.colors[label])
+            output.add_text_field(i, cls, text, score, x,
+                                  y, w, h, self.colors[label])
 
 # --------------------
 # - Factory class to build process object
 # - Inherits PyDataProcess.CTaskFactory from Ikomia API
 # --------------------
+
+
 class InferMmlabKieFactory(dataprocess.CTaskFactory):
 
     def __init__(self):
@@ -274,9 +287,8 @@ class InferMmlabKieFactory(dataprocess.CTaskFactory):
         self.info.short_description = "Inference for MMOCR from MMLAB KIE models"
         # relative path -> as displayed in Ikomia application process tree
         self.info.path = "Plugins/Python/Text"
-        self.info.version = "2.2.0"
-        self.info.max_python_version = "3.10"
-        self.info.max_python_version = "3.11"
+        self.info.version = "3.0.0"
+        self.info.min_python_version = "3.10.0"
         self.info.min_ikomia_version = "0.16.0"
         self.info.icon_path = "icons/mmlab.png"
         self.info.authors = "Kuang, Zhanghui and Sun, Hongbin and Li, Zhizhong and Yue, Xiaoyu and Lin," \
@@ -289,7 +301,7 @@ class InferMmlabKieFactory(dataprocess.CTaskFactory):
         # URL of documentation
         self.info.documentation_link = "https://mmocr.readthedocs.io/en/latest/"
         # Code source repository
-        self.info.original_repository = "https://github.com/open-mmlab/mmocr"
+        self.info.original_repository = "https://github.com/Ikomia-dev/mmocr"
 
         self.info.repository = "https://github.com/Ikomia-hub/infer_mmlab_kie"
         # Keywords used for search
